@@ -784,6 +784,157 @@ function agg_importer_admin_page() {
 }
 
 /**
+ * Shortcode front-end para subir e importar: [agg_importer_upload cap="manage_options"]
+ * Muestra formulario y resultados en la misma página
+ */
+function agg_handle_upload_and_import_frontend($required_cap = 'manage_options') {
+    $html = '';
+    if (!current_user_can($required_cap)) {
+        return '<div class="agg-importer-msg error">No tienes permisos suficientes.</div>';
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        return '';
+    }
+
+    if (!isset($_POST['agg_import_front_nonce']) || !wp_verify_nonce($_POST['agg_import_front_nonce'], 'agg_import_front')) {
+        return '<div class="agg-importer-msg error">Solicitud inválida (nonce).</div>';
+    }
+
+    if (!isset($_FILES['agg_file']) || $_FILES['agg_file']['error'] !== UPLOAD_ERR_OK) {
+        return '<div class="agg-importer-msg error">Error al subir el archivo.</div>';
+    }
+
+    $file = $_FILES['agg_file'];
+    if (!is_uploaded_file($file['tmp_name'])) {
+        return '<div class="agg-importer-msg error">La subida del archivo no es válida.</div>';
+    }
+
+    if (!function_exists('wp_handle_upload')) {
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+    }
+    $overrides = [
+        'test_form' => false,
+        'mimes' => [
+            'csv' => 'text/csv',
+            'txt' => 'text/plain',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'xls' => 'application/vnd.ms-excel',
+            'ods' => 'application/vnd.oasis.opendocument.spreadsheet',
+        ],
+    ];
+    $handled = wp_handle_upload($file, $overrides);
+    if (isset($handled['error'])) {
+        return '<div class="agg-importer-msg error">Error al procesar el archivo: ' . esc_html($handled['error']) . '</div>';
+    }
+
+    $tmp_path = $handled['file'];
+    $original_name = $file['name'];
+    $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
+
+    $products = [];
+    $delimiter_info = '';
+
+    if (in_array($ext, ['csv','txt'])) {
+        $detected = agg_detect_delimiter($tmp_path);
+        $delimiter = $detected;
+        if ($delimiter === "\t") $delimiter = "\t";
+        $products = agg_parse_csv_streaming($tmp_path, $delimiter);
+        $delimiter_name = $detected === ',' ? 'coma' : ($detected === ';' ? 'punto y coma' : 'tabulador');
+        $delimiter_info = " Delimitador detectado: $delimiter_name.";
+    } elseif (in_array($ext, ['xlsx','xls','ods'])) {
+        $products = agg_parse_xlsx_to_array($tmp_path);
+        if (empty($products)) {
+            return '<div class="agg-importer-msg warning">PhpSpreadsheet no disponible o archivo XLSX inválido. Usa CSV o instala phpoffice/phpspreadsheet.</div>';
+        }
+    } else {
+        return '<div class="agg-importer-msg error">Tipo de archivo no soportado. Use CSV o XLSX.</div>';
+    }
+
+    if (empty($products)) {
+        return '<div class="agg-importer-msg error">No se detectaron filas válidas en el archivo.</div>';
+    }
+
+    $normalized = [];
+    foreach ($products as $r) {
+        $normalized[] = agg_normalize_row($r);
+    }
+
+    $deduped = [];
+    $seen_skus = [];
+    $duplicate_skus = [];
+    foreach ($normalized as $row) {
+        $sku = isset($row['SKU']) ? (string)$row['SKU'] : '';
+        if ($sku === '') {
+            $sku = 'NO-SKU-' . wp_generate_password(8, false, false);
+            $row['SKU'] = $sku;
+        }
+        if (isset($seen_skus[$sku])) {
+            $duplicate_skus[$sku] = true;
+            continue;
+        }
+        $seen_skus[$sku] = true;
+        $deduped[] = $row;
+    }
+
+    $summary = [
+        'inserted' => 0,
+        'updated' => 0,
+        'errors' => []
+    ];
+
+    foreach ($deduped as $row) {
+        $res = agg_import_product_row($row);
+        if ($res['status'] === 'inserted') {
+            $summary['inserted']++;
+        } elseif ($res['status'] === 'updated') {
+            $summary['updated']++;
+        } else {
+            $summary['errors'][] = $res['message'];
+        }
+    }
+
+    $html .= '<div class="agg-importer-msg success">Importación finalizada.' . esc_html($delimiter_info) . ' Insertados: ' . intval($summary['inserted']) . '. Actualizados: ' . intval($summary['updated']) . '.</div>';
+    if (!empty($duplicate_skus)) {
+        $dups_text = implode(', ', array_keys($duplicate_skus));
+        $html .= '<div class="agg-importer-msg warning">Se detectaron SKUs duplicados en el archivo y se omitieron duplicados: ' . esc_html($dups_text) . '</div>';
+    }
+    if (!empty($summary['errors'])) {
+        $html .= '<div class="agg-importer-msg error"><p>Algunos errores ocurrieron:</p><ul>';
+        foreach ($summary['errors'] as $err) {
+            $html .= '<li>' . esc_html($err) . '</li>';
+        }
+        $html .= '</ul></div>';
+    }
+
+    // Log opcional
+    $logdir = wp_upload_dir();
+    $logfile = trailingslashit($logdir['basedir']) . 'agg-importer-log.txt';
+    $log = date('c') . " - FRONT - Inserted: {$summary['inserted']}, Updated: {$summary['updated']}, Errors: " . count($summary['errors']) . PHP_EOL;
+    @file_put_contents($logfile, $log, FILE_APPEND | LOCK_EX);
+
+    return $html;
+}
+
+function agg_importer_upload_shortcode($atts = []) {
+    $atts = shortcode_atts(['cap' => 'manage_options'], $atts, 'agg_importer_upload');
+    if (!is_user_logged_in() || !current_user_can($atts['cap'])) {
+        return '<div class="agg-importer-msg error">Debes iniciar sesión con permisos para importar.</div>';
+    }
+    $out = '';
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $out .= agg_handle_upload_and_import_frontend($atts['cap']);
+    }
+    $out .= '<form method="post" enctype="multipart/form-data" class="agg-importer-form">';
+    $out .= wp_nonce_field('agg_import_front', 'agg_import_front_nonce', true, false);
+    $out .= '<p><label>Archivo CSV / XLSX: <input type="file" name="agg_file" accept=".csv,.txt,.xlsx,.xls,.ods" required></label></p>';
+    $out .= '<p><button type="submit">Subir e Importar</button></p>';
+    $out .= '</form>';
+    return $out;
+}
+add_shortcode('agg_importer_upload', 'agg_importer_upload_shortcode');
+
+/**
  * Nota final:
  * - Para que la importación de imágenes cree attachments y asigne galerías, necesitarás un proceso adicional:
  *   - Descargar las URLs desde la columna Photos (separadas por '|')
