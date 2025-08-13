@@ -148,6 +148,49 @@ function agg_parse_csv_to_array($file_path, $delimiter = ',') {
 }
 
 /**
+ * Parser CSV en streaming con fgetcsv para soportar campos multilínea y archivos grandes
+ * @param string $file_path
+ * @param string $delimiter
+ * @return array
+ */
+function agg_parse_csv_streaming($file_path, $delimiter = ',') {
+    $rows = [];
+    if (!is_readable($file_path)) {
+        return $rows;
+    }
+    $handle = @fopen($file_path, 'r');
+    if ($handle === false) {
+        return $rows;
+    }
+
+    // Leer encabezado
+    $header = fgetcsv($handle, 0, $delimiter);
+    if ($header === false) {
+        fclose($handle);
+        return $rows;
+    }
+    foreach ($header as &$h) {
+        $h = trim($h, " \t\n\r\0\x0B\xEF\xBB\xBF");
+    }
+    unset($h);
+
+    while (($data = fgetcsv($handle, 0, $delimiter)) !== false) {
+        // Mapear con tolerancia a diferencias de longitud
+        $assoc = [];
+        $max = max(count($header), count($data));
+        for ($i = 0; $i < $max; $i++) {
+            $key = isset($header[$i]) ? $header[$i] : 'col_' . $i;
+            $assoc[$key] = isset($data[$i]) ? $data[$i] : '';
+        }
+        $assoc = agg_ensure_required_columns_row($assoc);
+        $rows[] = $assoc;
+    }
+
+    fclose($handle);
+    return $rows;
+}
+
+/**
  * Intenta leer XLSX usando PhpSpreadsheet si está disponible.
  * Devuelve array de filas asociativas o [] si no pudo leer.
  * @param string $file_path
@@ -278,6 +321,58 @@ function agg_import_product_row($row) {
     // Revisar existencia por SKU (meta_key _sku)
     $sku = sanitize_text_field($row['SKU']);
 
+    // Si WooCommerce está disponible, usar CRUD nativo
+    if (function_exists('wc_get_product_id_by_sku') && class_exists('WC_Product') && class_exists('WC_Product_Simple')) {
+        try {
+            $existing_id = wc_get_product_id_by_sku($sku);
+            $is_update = $existing_id ? true : false;
+            $product = $is_update ? wc_get_product($existing_id) : new WC_Product_Simple();
+
+            if (!$product) {
+                // Si por alguna razón no se pudo obtener, crear nuevo
+                $product = new WC_Product_Simple();
+                $is_update = false;
+            }
+
+            $product->set_name(wp_strip_all_tags($row['Title']));
+            $product->set_description(wp_kses_post($row['LongDescription']));
+            $product->set_short_description(wp_strip_all_tags($row['ShortDescription']));
+            if (!$is_update || $product->get_sku() !== $sku) {
+                $product->set_sku($sku);
+            }
+            $product->set_regular_price((string)$row['Price']);
+            $product->set_manage_stock(true);
+            $product->set_stock_quantity((int)$row['Stock']);
+            $product->set_stock_status(((int)$row['Stock']) > 0 ? 'instock' : 'outofstock');
+
+            // Guardar y obtener ID
+            $product_id = $product->save();
+
+            // Metadatos adicionales conservando compatibilidad
+            if ($product_id) {
+                $product->update_meta_data('brand', sanitize_text_field($row['Brand']));
+                $product->update_meta_data('_weight', sanitize_text_field($row['Weight']));
+                $product->update_meta_data('_length', sanitize_text_field($row['Length']));
+                $product->update_meta_data('_width', sanitize_text_field($row['Width']));
+                $product->update_meta_data('_height', sanitize_text_field($row['Height']));
+                $product->update_meta_data('attributes_json', wp_json_encode(json_decode($row['Attributes'], true)));
+                if (!empty($row['Photos'])) {
+                    $product->update_meta_data('product_photos_urls', sanitize_text_field($row['Photos']));
+                }
+                $product->save();
+            }
+
+            return [
+                'status' => $is_update ? 'updated' : 'inserted',
+                'product_id' => $product_id,
+                'message' => 'OK'
+            ];
+        } catch (Exception $e) {
+            return ['status' => 'error', 'product_id' => null, 'message' => $e->getMessage()];
+        }
+    }
+
+    // Fallback a implementación previa si WooCommerce no está disponible
     // Buscar post por meta SKU
     $args = [
         'post_type' => 'product',
@@ -327,6 +422,7 @@ function agg_import_product_row($row) {
         update_post_meta($product_id, '_sku', $sku);
         update_post_meta($product_id, '_regular_price', $row['Price']);
         update_post_meta($product_id, '_price', $row['Price']);
+        update_post_meta($product_id, '_manage_stock', 'yes');
         update_post_meta($product_id, '_stock', intval($row['Stock']));
         update_post_meta($product_id, '_stock_status', (intval($row['Stock']) > 0) ? 'instock' : 'outofstock');
         update_post_meta($product_id, 'brand', sanitize_text_field($row['Brand']));
@@ -334,10 +430,8 @@ function agg_import_product_row($row) {
         update_post_meta($product_id, '_length', sanitize_text_field($row['Length']));
         update_post_meta($product_id, '_width', sanitize_text_field($row['Width']));
         update_post_meta($product_id, '_height', sanitize_text_field($row['Height']));
-        update_post_meta($product_id, 'attributes_json', maybe_serialize(json_decode($row['Attributes'], true)));
-        // Images: el plugin original probablemente espera URLs en columna Photos separadas por '|'
+        update_post_meta($product_id, 'attributes_json', wp_json_encode(json_decode($row['Attributes'], true)));
         if (!empty($row['Photos'])) {
-            // Guardar raw en meta (el manejo de attachments debe hacerse aparte o por otro proceso)
             update_post_meta($product_id, 'product_photos_urls', sanitize_text_field($row['Photos']));
         }
     }
@@ -380,7 +474,7 @@ function agg_handle_upload_and_import() {
         // Si detectó tabulador, pasar "\t" a PHP
         $delimiter = $detected;
         if ($delimiter === "\t") $delimiter = "\t";
-        $products = agg_parse_csv_to_array($tmp_path, $delimiter);
+        $products = agg_parse_csv_streaming($tmp_path, $delimiter);
         
         // Guardar información sobre el delimitador detectado
         $delimiter_name = $detected === ',' ? 'coma' : ($detected === ';' ? 'punto y coma' : 'tabulador');
