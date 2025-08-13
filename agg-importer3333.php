@@ -266,7 +266,7 @@ add_shortcode('agg_importer_list', function($atts){
             background: #fafafa; border:1px solid #ddd; border-radius:8px;
             padding:16px; width:320px; box-shadow:0 2px 6px rgba(0,0,0,0.07);
         }
-        .agg-catalogo-card img { max-width:100%; max-height:150px; border-radius:6px; margin-bottom:8px; }
+        .agg-catalogo-card img { max-width:100%; max-height:150px; border-radius:6px; margin-bottom:8px; height:auto; display:block; }
         .agg-catalogo-card h3 { margin:0 0 8px 0; font-size:1.15em; }
         .agg-catalogo-card .agg-meta { font-size:0.98em; color:#444; margin-bottom:6px;}
         .agg-catalogo-card .agg-precio { font-weight:bold; color:#2b8c2b; }
@@ -276,10 +276,17 @@ add_shortcode('agg_importer_list', function($atts){
         while ($query->have_posts()) {
             $query->the_post();
             $meta = get_post_meta(get_the_ID());
-            $img = !empty($meta['imagen_url'][0]) ? esc_url($meta['imagen_url'][0]) : '';
+            $external_img = !empty($meta['imagen_url'][0]) ? esc_url($meta['imagen_url'][0]) : '';
+            $thumb_html = get_the_post_thumbnail(get_the_ID(), 'medium', ['loading' => 'lazy', 'decoding' => 'async']);
             ?>
             <div class="agg-catalogo-card">
-                <?php if ($img) { ?><img src="<?php echo $img; ?>"><?php } ?>
+                <?php
+                if ($thumb_html) {
+                    echo $thumb_html;
+                } elseif ($external_img) {
+                    echo '<img src="' . $external_img . '" loading="lazy" decoding="async" alt="">';
+                }
+                ?>
                 <h3><?php echo esc_html(get_the_title()); ?></h3>
                 <div class="agg-meta"><?php echo esc_html(get_the_content()); ?></div>
                 <?php
