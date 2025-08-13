@@ -68,18 +68,25 @@ add_action('admin_init', function() {
     }
 });
 
-// 5. Importación robusta desde CSV (detecta delimitador y encabezado de título)
+// Helper: tomar la primera URL de imagen válida desde un campo (soporta '|' múltiple)
+function agg_pick_first_image_url($value) {
+    if (!is_string($value) || $value === '') return '';
+    $candidates = array_filter(array_map('trim', preg_split('/\||,\s*(?=https?:)/', $value)));
+    foreach ($candidates as $url) {
+        $url = esc_url_raw($url);
+        if (wp_http_validate_url($url)) {
+            return $url;
+        }
+    }
+    return '';
+}
+
 function agg_importer_process_csv($filepath) {
     $handle = fopen($filepath, 'r');
     if (!$handle) {
         agg_importer_redirect_error('No se pudo abrir el archivo.');
         return;
     }
-    $row = 0;
-    $imported = 0; $updated = 0; $errors = 0;
-    $log = [];
-    $headers = [];
-    $encoding_checked = false;
 
     // Detectar delimitador automáticamente
     $first_line = fgets($handle);
@@ -89,62 +96,136 @@ function agg_importer_process_csv($filepath) {
     }
     rewind($handle);
 
-    // Leer encabezados
-    if (($data = fgetcsv($handle, 0, $delimiter)) !== FALSE) {
-        $headers = array_map(function($h){
-            return strtolower(trim($h));
-        }, $data);
-        $titulo_index = false;
-        $titulo_names = ['titulo','título','title','nombre','producto','nombre_producto'];
-        foreach ($headers as $i => $h) {
-            if (in_array($h, $titulo_names)) {
-                $titulo_index = $i;
-                break;
-            }
-        }
-        if ($titulo_index === false) {
-            fclose($handle);
-            agg_importer_redirect_error('No se encontró la columna de título en el CSV. Encabezados detectados: ' . implode(', ', $headers));
-            return;
-        }
+    $row = 0;
+    $imported = 0; $updated = 0; $errors = 0;
+    $log = [];
+
+    // Leer encabezados normalizados
+    $headers = [];
+    if (($data = fgetcsv($handle, 0, $delimiter)) !== false) {
+        $headers = array_map(function($h){ return strtolower(trim($h)); }, $data);
     } else {
         fclose($handle);
         agg_importer_redirect_error('No se pudo leer el encabezado del CSV.');
         return;
     }
 
+    // Mapeo flexible de alias -> clave canónica
+    $aliasMap = [
+        'titulo'   => ['titulo','título','title','nombre','producto','nombre_producto'],
+        'contenido'=> ['contenido','descripcion','descripción','longdescription','long_description','descripcion_larga','descripción_larga','shortdescription','short_description'],
+        'precio'   => ['precio','price'],
+        'stock'    => ['stock','qty','quantity'],
+        'imagen_url'=> ['imagen_url','image','imagen','image_url','photo','photos','fotos','pictures']
+    ];
+    $index = [];
+    foreach ($aliasMap as $canon => $aliases) {
+        foreach ($aliases as $a) {
+            $pos = array_search($a, $headers, true);
+            if ($pos !== false) { $index[$canon] = $pos; break; }
+        }
+    }
+    if (!isset($index['titulo'])) {
+        fclose($handle);
+        agg_importer_redirect_error('No se encontró columna de título. Encabezados: ' . implode(', ', $headers));
+        return;
+    }
+
+    // Preparar utilidades para sideload
+    if (!function_exists('media_sideload_image')) {
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+    }
+    add_filter('http_request_timeout', function($t){ return max(20, (int)$t); }, 9999);
+    add_filter('http_headers_useragent', function($ua){ return trim($ua.' AGG-Importer'); }, 9999);
+
     // Procesar filas
-    while (($data = fgetcsv($handle, 0, $delimiter)) !== FALSE) {
+    while (($data = fgetcsv($handle, 0, $delimiter)) !== false) {
         $row++;
+        // Construir array asociativo original
         $post_data = [];
-        foreach ($headers as $i => $header) $post_data[$header] = isset($data[$i]) ? trim($data[$i]) : '';
-        // Validación: título
-        $post_title = !empty($data[$titulo_index]) ? $data[$titulo_index] : 'Sin título';
-        // Mapear correctamente
-        $post_id = !empty($post_data['id']) ? intval($post_data['id']) : 0;
-        $post_content = isset($post_data['contenido']) ? $post_data['contenido'] : '';
+        foreach ($headers as $i => $header) {
+            $post_data[$header] = isset($data[$i]) ? trim($data[$i]) : '';
+        }
+
+        // Campos principales
+        $post_title = $post_data[$headers[$index['titulo']]] ?? '';
+        if ($post_title === '') { $post_title = 'Sin título'; }
+        $post_id    = !empty($post_data['id']) ? intval($post_data['id']) : 0;
+
+        // Contenido preferente: contenido, o descripciones si existen
+        $content_val = '';
+        if (isset($index['contenido'])) {
+            $content_val = $post_data[$headers[$index['contenido']]] ?? '';
+        } else {
+            $cand = [];
+            foreach (['descripcion','descripción','longdescription','long_description','shortdescription','short_description'] as $k) {
+                if (isset($post_data[$k]) && $post_data[$k] !== '') { $cand[] = $post_data[$k]; }
+            }
+            $content_val = implode("\n\n", $cand);
+        }
+
         $post_arr = [
             'post_type'    => 'agg_item',
             'post_status'  => 'publish',
             'post_title'   => sanitize_text_field($post_title),
-            'post_content' => sanitize_textarea_field($post_content)
+            'post_content' => sanitize_textarea_field($content_val)
         ];
+
         if ($post_id && get_post($post_id)) {
             $post_arr['ID'] = $post_id;
             $result = wp_update_post($post_arr, true);
-            if (is_wp_error($result)) { $errors++; $log[] = "Error actualizando ID {$post_id}"; }
-            else { $updated++; $log[] = "Actualizado ID {$post_id}"; }
+            if (is_wp_error($result)) { $errors++; $log[] = "Error actualizando ID {$post_id}"; continue; }
+            else { $post_id = $result; $updated++; $log[] = "Actualizado ID {$post_id}"; }
         } else {
             $result = wp_insert_post($post_arr, true);
-            if (is_wp_error($result)) { $errors++; $log[] = "Error insertando fila $row"; }
-            else { $imported++; $post_id = $result; $log[] = "Importado nuevo ID {$post_id}"; }
+            if (is_wp_error($result)) { $errors++; $log[] = "Error insertando fila {$row}"; continue; }
+            else { $post_id = $result; $imported++; $log[] = "Importado nuevo ID {$post_id}"; }
         }
-        // Guardar meta campos
-        $meta_fields = array_diff(array_keys($post_data), ['id','titulo','título','title','nombre','producto','nombre_producto','contenido']);
-        foreach ($meta_fields as $key) {
-            update_post_meta($post_id, sanitize_key($key), sanitize_text_field($post_data[$key]));
+
+        // Guardar metas genéricas (todas las columnas, menos las ya usadas)
+        $skip_keys = array_merge($aliasMap['titulo'], ['id']);
+        foreach ($post_data as $key => $val) {
+            if (in_array($key, $skip_keys, true)) continue;
+            update_post_meta($post_id, sanitize_key($key), sanitize_text_field($val));
+        }
+        // Metas canónicas
+        if (isset($index['precio'])) {
+            update_post_meta($post_id, 'precio', sanitize_text_field($post_data[$headers[$index['precio']]] ?? ''));
+        }
+        if (isset($index['stock'])) {
+            update_post_meta($post_id, 'stock', sanitize_text_field($post_data[$headers[$index['stock']]] ?? ''));
+        }
+
+        // Imágenes: aceptar imagen_url o photos y hacer sideload del primer URL
+        $raw_img = '';
+        if (isset($index['imagen_url'])) {
+            $raw_img = $post_data[$headers[$index['imagen_url']]] ?? '';
+        }
+        if ($raw_img === '' && isset($post_data['photos'])) {
+            $raw_img = $post_data['photos'];
+        }
+        $first_url = agg_pick_first_image_url($raw_img);
+        if ($first_url !== '') {
+            update_post_meta($post_id, 'imagen_url', esc_url_raw($first_url));
+            $att_id = media_sideload_image($first_url, $post_id, null, 'id');
+            if (is_wp_error($att_id)) {
+                error_log('[AGG Importer] Error imagen: '.$first_url.' -> '.$att_id->get_error_message());
+            } else {
+                // Generar metadatos y setear thumbnail
+                $file_path = get_attached_file($att_id);
+                if ($file_path && file_exists($file_path)) {
+                    $metadata = wp_generate_attachment_metadata($att_id, $file_path);
+                    if (!is_wp_error($metadata) && !empty($metadata)) {
+                        wp_update_attachment_metadata($att_id, $metadata);
+                    }
+                }
+                set_post_thumbnail($post_id, (int)$att_id);
+            }
         }
     }
+
     fclose($handle);
     agg_importer_log($log);
     agg_importer_redirect_notice("Importados: $imported | Actualizados: $updated | Errores: $errors");
