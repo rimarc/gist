@@ -249,11 +249,32 @@ function agg_normalize_row($row) {
         }
     }
 
-    // Price: reemplazar coma decimal por punto
+    // Price: manejo robusto de separadores (1.234,56 / 1,234.56 / 1234.56)
     if (isset($row['Price'])) {
-        $price = str_replace(',', '.', $row['Price']);
-        $price = preg_replace('/[^0-9\.\-]/', '', $price);
-        $row['Price'] = $price === '' ? 0 : floatval($price);
+        $raw = (string)$row['Price'];
+        $raw = trim($raw);
+        $clean = preg_replace('/[^0-9,\.\-]/', '', $raw);
+        $has_comma = strpos($clean, ',') !== false;
+        $has_dot = strpos($clean, '.') !== false;
+        if ($has_comma && $has_dot) {
+            // Tomar el último separador como decimal y eliminar el otro como miles
+            $last_comma = strrpos($clean, ',');
+            $last_dot = strrpos($clean, '.');
+            if ($last_comma !== false && ($last_dot === false || $last_comma > $last_dot)) {
+                // coma decimal
+                $clean = str_replace('.', '', $clean); // quitar miles
+                $clean = str_replace(',', '.', $clean); // coma a punto
+            } else {
+                // punto decimal
+                $clean = str_replace(',', '', $clean); // quitar miles
+            }
+        } elseif ($has_comma && !$has_dot) {
+            // Solo coma: tratar como decimal
+            $clean = str_replace(',', '.', $clean);
+        } else {
+            // Solo punto o ninguno: ya ok
+        }
+        $row['Price'] = $clean === '' || $clean === '-' ? 0 : floatval($clean);
     } else {
         $row['Price'] = 0;
     }
@@ -311,30 +332,50 @@ function agg_normalize_row($row) {
 }
 
 /**
- * Asigna categorías en taxonomía product_cat a partir de un string separado por '|'
+ * Asigna categorías en taxonomía product_cat desde string:
+ * - Múltiples categorías separadas por '|'
+ * - Soporta jerarquías con '>' (ej: "Accesorios > Fundas y Carcasas")
  */
 function agg_assign_categories($product_id, $categoriesString) {
     if (empty($categoriesString)) {
         return;
     }
-    $rawTerms = array_filter(array_map('trim', explode('|', (string)$categoriesString)));
-    if (empty($rawTerms)) {
+    $categorySpecs = array_filter(array_map('trim', explode('|', (string)$categoriesString)));
+    if (empty($categorySpecs)) {
         return;
     }
-    $termIds = [];
-    foreach ($rawTerms as $termName) {
-        $existing = term_exists($termName, 'product_cat');
-        if ($existing === 0 || $existing === null) {
-            $created = wp_insert_term($termName, 'product_cat');
-            if (!is_wp_error($created)) {
-                $termIds[] = (int)$created['term_id'];
+
+    $leafTermIds = [];
+    foreach ($categorySpecs as $spec) {
+        // Construir jerarquía
+        $levels = array_filter(array_map('trim', explode('>', $spec)));
+        if (empty($levels)) {
+            continue;
+        }
+        $parentId = 0;
+        foreach ($levels as $levelName) {
+            $existing = term_exists($levelName, 'product_cat', $parentId ?: null);
+            if ($existing === 0 || $existing === null) {
+                $created = wp_insert_term($levelName, 'product_cat', [
+                    'parent' => $parentId ? (int)$parentId : 0,
+                ]);
+                if (is_wp_error($created)) {
+                    // Saltar en error; continuar con siguiente rama
+                    $parentId = 0;
+                    break;
+                }
+                $parentId = (int)$created['term_id'];
+            } else {
+                $parentId = (int)(is_array($existing) ? $existing['term_id'] : $existing);
             }
-        } else {
-            $termIds[] = (int)(is_array($existing) ? $existing['term_id'] : $existing);
+        }
+        if ($parentId) {
+            $leafTermIds[] = $parentId;
         }
     }
-    if (!empty($termIds)) {
-        wp_set_object_terms($product_id, $termIds, 'product_cat', false);
+
+    if (!empty($leafTermIds)) {
+        wp_set_object_terms($product_id, $leafTermIds, 'product_cat', false);
     }
 }
 
