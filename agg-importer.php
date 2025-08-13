@@ -311,6 +311,90 @@ function agg_normalize_row($row) {
 }
 
 /**
+ * Asigna categorías en taxonomía product_cat a partir de un string separado por '|'
+ */
+function agg_assign_categories($product_id, $categoriesString) {
+    if (empty($categoriesString)) {
+        return;
+    }
+    $rawTerms = array_filter(array_map('trim', explode('|', (string)$categoriesString)));
+    if (empty($rawTerms)) {
+        return;
+    }
+    $termIds = [];
+    foreach ($rawTerms as $termName) {
+        $existing = term_exists($termName, 'product_cat');
+        if ($existing === 0 || $existing === null) {
+            $created = wp_insert_term($termName, 'product_cat');
+            if (!is_wp_error($created)) {
+                $termIds[] = (int)$created['term_id'];
+            }
+        } else {
+            $termIds[] = (int)(is_array($existing) ? $existing['term_id'] : $existing);
+        }
+    }
+    if (!empty($termIds)) {
+        wp_set_object_terms($product_id, $termIds, 'product_cat', false);
+    }
+}
+
+/**
+ * Asigna marca en taxonomía si existe; si no, guarda en meta 'brand'
+ */
+function agg_assign_brand($product_id, $brandName) {
+    $brand = trim((string)$brandName);
+    if ($brand === '') {
+        return;
+    }
+    $taxonomies = ['pa_brand', 'product_brand'];
+    foreach ($taxonomies as $tax) {
+        if (taxonomy_exists($tax)) {
+            $existing = term_exists($brand, $tax);
+            if ($existing === 0 || $existing === null) {
+                $created = wp_insert_term($brand, $tax);
+                if (!is_wp_error($created)) {
+                    wp_set_object_terms($product_id, [(int)$created['term_id']], $tax, false);
+                    return;
+                }
+            } else {
+                $term_id = (int)(is_array($existing) ? $existing['term_id'] : $existing);
+                wp_set_object_terms($product_id, [$term_id], $tax, false);
+                return;
+            }
+        }
+    }
+    update_post_meta($product_id, 'brand', $brand);
+}
+
+/**
+ * Descarga imágenes desde URLs y asigna thumbnail y galería
+ */
+function agg_attach_images_from_urls($product_id, $photosString) {
+    $urls = array_filter(array_map('trim', explode('|', (string)$photosString)));
+    if (empty($urls)) {
+        return;
+    }
+    if (!function_exists('media_sideload_image')) {
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+    }
+    $attachment_ids = [];
+    foreach ($urls as $url) {
+        $sid = media_sideload_image($url, $product_id, null, 'id');
+        if (!is_wp_error($sid)) {
+            $attachment_ids[] = (int)$sid;
+        }
+    }
+    if (!empty($attachment_ids)) {
+        set_post_thumbnail($product_id, $attachment_ids[0]);
+        if (count($attachment_ids) > 1) {
+            update_post_meta($product_id, '_product_image_gallery', implode(',', array_slice($attachment_ids, 1)));
+        }
+    }
+}
+
+/**
  * Inserta o actualiza un producto en WordPress/WooCommerce (básico)
  * Para integrarlo totalmente con WooCommerce, necesitarás wc-functions; aquí se realiza una operación general con post_type 'product'.
  * Devuelve 'inserted' o 'updated' o 'error'.
@@ -360,6 +444,13 @@ function agg_import_product_row($row) {
                     $product->update_meta_data('product_photos_urls', sanitize_text_field($row['Photos']));
                 }
                 $product->save();
+
+                // Taxonomías y medios
+                agg_assign_categories($product_id, $row['Category_ID']);
+                agg_assign_brand($product_id, $row['Brand']);
+                if (!empty($row['Photos'])) {
+                    agg_attach_images_from_urls($product_id, $row['Photos']);
+                }
             }
 
             return [
@@ -434,6 +525,12 @@ function agg_import_product_row($row) {
         if (!empty($row['Photos'])) {
             update_post_meta($product_id, 'product_photos_urls', sanitize_text_field($row['Photos']));
         }
+        // Taxonomías y medios
+        agg_assign_categories($product_id, $row['Category_ID']);
+        agg_assign_brand($product_id, $row['Brand']);
+        if (!empty($row['Photos'])) {
+            agg_attach_images_from_urls($product_id, $row['Photos']);
+        }
     }
 
     return ['status' => $status, 'product_id' => $product_id, 'message' => 'OK'];
@@ -462,7 +559,36 @@ function agg_handle_upload_and_import() {
         return;
     }
 
-    $tmp_path = $file['tmp_name'];
+    if (!is_uploaded_file($file['tmp_name'])) {
+        add_action('admin_notices', function() {
+            echo "<div class='notice notice-error'><p>La subida del archivo no es válida.</p></div>";
+        });
+        return;
+    }
+
+    // Mover/validar con wp_handle_upload
+    if (!function_exists('wp_handle_upload')) {
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+    }
+    $overrides = [
+        'test_form' => false,
+        'mimes' => [
+            'csv' => 'text/csv',
+            'txt' => 'text/plain',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'xls' => 'application/vnd.ms-excel',
+            'ods' => 'application/vnd.oasis.opendocument.spreadsheet',
+        ],
+    ];
+    $handled = wp_handle_upload($file, $overrides);
+    if (isset($handled['error'])) {
+        add_action('admin_notices', function() use ($handled) {
+            echo "<div class='notice notice-error'><p>Error al procesar el archivo: " . esc_html($handled['error']) . "</p></div>";
+        });
+        return;
+    }
+
+    $tmp_path = $handled['file'];
     $original_name = $file['name'];
     $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
 
@@ -514,8 +640,29 @@ function agg_handle_upload_and_import() {
         $normalized[] = agg_normalize_row($r);
     }
 
-    // Hacer SKUs únicos
-    $normalized = agg_make_sku_unique($normalized);
+    // Evitar SKUs duplicados: generar para vacíos y omitir repeticiones
+    $deduped = [];
+    $seen_skus = [];
+    $duplicate_skus = [];
+    foreach ($normalized as $row) {
+        $sku = isset($row['SKU']) ? (string)$row['SKU'] : '';
+        if ($sku === '') {
+            $sku = 'NO-SKU-' . wp_generate_password(8, false, false);
+            $row['SKU'] = $sku;
+        }
+        if (isset($seen_skus[$sku])) {
+            $duplicate_skus[$sku] = true;
+            continue; // omitir duplicado
+        }
+        $seen_skus[$sku] = true;
+        $deduped[] = $row;
+    }
+    if (!empty($duplicate_skus)) {
+        $dups_text = implode(', ', array_keys($duplicate_skus));
+        add_action('admin_notices', function() use ($dups_text) {
+            echo "<div class='notice notice-warning'><p>Se detectaron SKUs duplicados en el archivo y se omitieron duplicados: " . esc_html($dups_text) . "</p></div>";
+        });
+    }
 
     // Importar fila por fila
     $summary = [
@@ -524,7 +671,7 @@ function agg_handle_upload_and_import() {
         'errors' => []
     ];
 
-    foreach ($normalized as $row) {
+    foreach ($deduped as $row) {
         $res = agg_import_product_row($row);
         if ($res['status'] === 'inserted') {
             $summary['inserted']++;
