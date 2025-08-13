@@ -14,9 +14,11 @@ function agg_register_cpt() {
         'label' => 'AGG Items',
         'public' => true,
         'show_in_menu' => true,
-        'supports' => ['title', 'editor'],
+        'supports' => ['title', 'editor', 'thumbnail', 'custom-fields'],
         'menu_icon' => 'dashicons-database',
     ]);
+    // Asegurar soporte de miniaturas para este CPT
+    add_theme_support('post-thumbnails', ['agg_item']);
 }
 add_action('init', 'agg_register_cpt');
 
