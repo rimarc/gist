@@ -260,7 +260,7 @@ function agg_importer_process_csv($filepath) {
             'post_type'    => 'agg_item',
             'post_status'  => 'publish',
             'post_title'   => sanitize_text_field($post_title),
-            'post_content' => sanitize_textarea_field($content_val)
+            'post_content' => wp_strip_all_tags(sanitize_textarea_field($content_val))
         ];
 
         if ($post_id && get_post($post_id)) {
@@ -278,7 +278,7 @@ function agg_importer_process_csv($filepath) {
         $skip_keys = array_merge($aliasMap['titulo'], ['id']);
         foreach ($post_data as $key => $val) {
             if (in_array($key, $skip_keys, true)) continue;
-            update_post_meta($post_id, sanitize_key($key), sanitize_text_field($val));
+            update_post_meta($post_id, sanitize_key($key), wp_strip_all_tags(sanitize_text_field($val)));
         }
         // Metas canónicas
         if (isset($index['precio'])) {
@@ -643,7 +643,7 @@ add_shortcode('agg_importer_list', function($atts){
             <?php endif; ?>
 
                 <h3><?php echo esc_html(get_the_title()); ?></h3>
-                <div class="agg-meta"><?php echo esc_html(get_the_content()); ?></div>
+                <div class="agg-meta"><?php echo esc_html(wp_strip_all_tags(get_the_content())); ?></div>
                 <?php
                 $meta_keys = ['plataforma','combo','stock','activo','descripcion_larga'];
                 foreach ($meta_keys as $key) {
