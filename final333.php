@@ -60,6 +60,8 @@ add_action('add_meta_boxes', function(){
     $sh  = esc_url(get_post_meta($post->ID, 'link_shopee', true));
     $wa  = esc_attr(get_post_meta($post->ID, 'whatsapp_number', true));
     $wa_msg = esc_attr(get_post_meta($post->ID, 'whatsapp_message', true));
+    $custom_platform = esc_url(get_post_meta($post->ID, 'link_custom_platform', true));
+    $custom_platform_name = esc_attr(get_post_meta($post->ID, 'custom_platform_name', true));
     
     echo '<p><label>Mercado Livre: <input type="url" name="link_ml" value="'.$ml.'" style="width:100%"></label></p>';
     echo '<p><label>OLX: <input type="url" name="link_olx" value="'.$olx.'" style="width:100%"></label></p>';
@@ -68,6 +70,9 @@ add_action('add_meta_boxes', function(){
     echo '<p><label>WhatsApp Número: <input type="tel" name="whatsapp_number" value="'.$wa.'" placeholder="+5511999999999" style="width:100%"></label></p>';
     echo '<p><label>Mensaje WhatsApp: <textarea name="whatsapp_message" style="width:100%; height:60px;" placeholder="Olá! Gostaria de saber mais sobre este produto...">'.$wa_msg.'</textarea></label></p>';
     echo '<p style="font-size:11px; color:#666;">Deixe em branco para usar mensagem padrão</p>';
+    echo '<hr style="margin:15px 0; border:0; border-top:1px solid #ddd;">';
+    echo '<p><label>Nombre Plataforma Personalizada: <input type="text" name="custom_platform_name" value="'.$custom_platform_name.'" placeholder="Ej: Amazon, eBay, etc." style="width:100%"></label></p>';
+    echo '<p><label>Enlace Plataforma Personalizada: <input type="url" name="link_custom_platform" value="'.$custom_platform.'" placeholder="https://..." style="width:100%"></label></p>';
   }, 'agg_item', 'side', 'default');
 });
 add_action('save_post_agg_item', function($post_id){
@@ -79,6 +84,8 @@ add_action('save_post_agg_item', function($post_id){
   }
   if (isset($_POST['whatsapp_number'])) update_post_meta($post_id, 'whatsapp_number', sanitize_text_field($_POST['whatsapp_number']));
   if (isset($_POST['whatsapp_message'])) update_post_meta($post_id, 'whatsapp_message', sanitize_textarea_field($_POST['whatsapp_message']));
+  if (isset($_POST['link_custom_platform'])) update_post_meta($post_id, 'link_custom_platform', esc_url_raw($_POST['link_custom_platform']));
+  if (isset($_POST['custom_platform_name'])) update_post_meta($post_id, 'custom_platform_name', sanitize_text_field($_POST['custom_platform_name']));
 });
 
 
@@ -363,6 +370,7 @@ add_shortcode('agg_importer_list', function($atts){
   .agg-btn--olx { background:#6e00f5; }
   .agg-btn--sh { background:#ee4d2d; }
   .agg-btn--wa { background:#25d366; }
+  .agg-btn--custom { background:#007bff; }
   .agg-btn:hover { opacity:.9; }
   
   /* Responsive para botones en móviles */
@@ -654,8 +662,10 @@ add_shortcode('agg_importer_list', function($atts){
                 $sh  = get_post_meta(get_the_ID(), 'link_shopee', true);
                 $wa  = get_post_meta(get_the_ID(), 'whatsapp_number', true);
                 $wa_msg = get_post_meta(get_the_ID(), 'whatsapp_message', true);
+                $custom_platform = get_post_meta(get_the_ID(), 'link_custom_platform', true);
+                $custom_platform_name = get_post_meta(get_the_ID(), 'custom_platform_name', true);
                 
-                if ($ml || $olx || $sh || $wa) {
+                if ($ml || $olx || $sh || $wa || $custom_platform) {
                   echo '<div class="agg-links">';
                   if ($ml)  echo '<a class="agg-btn agg-btn--ml" href="'.esc_url($ml).'" target="_blank" rel="nofollow noopener">Ver en Mercado Livre</a>';
                   if ($olx) echo '<a class="agg-btn agg-btn--olx" href="'.esc_url($olx).'" target="_blank" rel="nofollow noopener">Ver en OLX</a>';
@@ -666,6 +676,10 @@ add_shortcode('agg_importer_list', function($atts){
                     $message = !empty($wa_msg) ? $wa_msg : $default_msg;
                     $wa_url = 'https://wa.me/' . $wa_number . '?text=' . urlencode($message);
                     echo '<a class="agg-btn agg-btn--wa" href="'.esc_url($wa_url).'" target="_blank" rel="nofollow noopener">💬 WhatsApp</a>';
+                  }
+                  if ($custom_platform) {
+                    $platform_name = !empty($custom_platform_name) ? $custom_platform_name : 'Ver en Plataforma';
+                    echo '<a class="agg-btn agg-btn--custom" href="'.esc_url($custom_platform).'" target="_blank" rel="nofollow noopener">'.$platform_name.'</a>';
                   }
                   echo '</div>';
                 }
