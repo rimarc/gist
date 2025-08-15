@@ -569,48 +569,43 @@ add_shortcode('agg_importer_list', function($atts){
             $post_id = get_the_ID();
             $media_items = [];
 
-            // 1. PRIORIDAD: Imagen destacada de WordPress
+            // Adjuntos (imágenes y videos) - SIEMPRE se añaden
+            $attachments = get_attached_media('', $post_id);
+            foreach ($attachments as $att) {
+                $mime = get_post_mime_type($att->ID);
+                if (strpos($mime, 'image/') === 0) {
+                    $media_items[] = ['type'=>'image','html'=>wp_get_attachment_image($att->ID,'medium',false,['loading'=>'lazy','decoding'=>'async'])];
+                } elseif (strpos($mime, 'video/') === 0) {
+                    $src = wp_get_attachment_url($att->ID);
+                    if ($src) $media_items[] = ['type'=>'video','html'=>wp_video_shortcode(['src'=>$src,'preload'=>'metadata'])];
+                }
+            }
+            
+            // Añadir URLs externas (imagen/imagen_url) ADEMÁS de adjuntos
+            $raw = '';
+            // Priorizar imagen destacada de WordPress
             $thumbnail_id = get_post_thumbnail_id();
             if ($thumbnail_id) {
                 $thumbnail_url = wp_get_attachment_image_url($thumbnail_id, 'medium');
                 if ($thumbnail_url) {
-                    $media_items[] = ['type'=>'image','html'=>wp_get_attachment_image($thumbnail_id,'medium',false,['loading'=>'lazy','decoding'=>'async'])];
+                    $raw = $thumbnail_url;
                 }
             }
-
-            // 2. SEGUNDA PRIORIDAD: Meta fields (imagen/imagen_url)
-            if (empty($media_items)) {
-                $raw = '';
+            // Fallback a meta fields si no hay imagen destacada
+            if (empty($raw)) {
                 if (!empty($meta['imagen'][0])) { $raw = $meta['imagen'][0]; }
                 elseif (!empty($meta['imagen_url'][0])) { $raw = $meta['imagen_url'][0]; }
-                
-                if (!empty($raw)) {
-                    $urls = array_filter(array_map('trim', preg_split('/\||,\s*(?=https?:)/', (string)$raw)));
-                    foreach ($urls as $u) {
-                        if (!filter_var($u, FILTER_VALIDATE_URL)) continue;
-                        $lower = strtolower($u);
-                        if (preg_match('/\.(mp4|webm|ogg)(\?.*)?$/', $lower)) {
-                            $media_items[] = ['type'=>'video','html'=>wp_video_shortcode(['src'=>$u,'preload'=>'metadata'])];
-                        } else {
-                            $media_items[] = ['type'=>'image','html'=>'<img src="'.esc_url($u).'" loading="lazy" decoding="async" alt="">'];
-                        }
-                    }
-                }
             }
-
-            // 3. TERCERA PRIORIDAD: Otros adjuntos (excluyendo la imagen destacada)
-            if (empty($media_items)) {
-                $attachments = get_attached_media('', $post_id);
-                foreach ($attachments as $att) {
-                    // Excluir la imagen destacada para evitar duplicados
-                    if ($att->ID == $thumbnail_id) continue;
-                    
-                    $mime = get_post_mime_type($att->ID);
-                    if (strpos($mime, 'image/') === 0) {
-                        $media_items[] = ['type'=>'image','html'=>wp_get_attachment_image($att->ID,'medium',false,['loading'=>'lazy','decoding'=>'async'])];
-                    } elseif (strpos($mime, 'video/') === 0) {
-                        $src = wp_get_attachment_url($att->ID);
-                        if ($src) $media_items[] = ['type'=>'video','html'=>wp_video_shortcode(['src'=>$src,'preload'=>'metadata'])];
+            
+            if (!empty($raw)) {
+                $urls = array_filter(array_map('trim', preg_split('/\||,\s*(?=https?:)/', (string)$raw)));
+                foreach ($urls as $u) {
+                    if (!filter_var($u, FILTER_VALIDATE_URL)) continue;
+                    $lower = strtolower($u);
+                    if (preg_match('/\.(mp4|webm|ogg)(\?.*)?$/', $lower)) {
+                        $media_items[] = ['type'=>'video','html'=>wp_video_shortcode(['src'=>$u,'preload'=>'metadata'])];
+                    } else {
+                        $media_items[] = ['type'=>'image','html'=>'<img src="'.esc_url($u).'" loading="lazy" decoding="async" alt="">'];
                     }
                 }
             }
