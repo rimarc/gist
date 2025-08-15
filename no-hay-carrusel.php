@@ -649,7 +649,13 @@ add_shortcode('agg_importer_list', function($atts){
             }));
 
             // Debug temporal - ver qué hay en media_items
-            echo '<!-- DEBUG: media_items count = ' . count($media_items) . ' -->';
+            echo '<div style="background:yellow; padding:10px; margin:10px; border:2px solid red;">';
+            echo '<strong>DEBUG:</strong> media_items count = ' . count($media_items) . '<br>';
+            echo '<strong>DEBUG:</strong> thumbnail_id = ' . $thumbnail_id . '<br>';
+            if ($thumbnail_id) {
+                echo '<strong>DEBUG:</strong> thumbnail_url = ' . wp_get_attachment_image_url($thumbnail_id, 'medium') . '<br>';
+            }
+            echo '</div>';
             if (!empty($media_items)) :
                 $carousel_id = 'aggc_' . $post_id;
             ?>
