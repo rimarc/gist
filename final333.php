@@ -73,6 +73,8 @@ add_action('add_meta_boxes', function(){
     echo '<hr style="margin:15px 0; border:0; border-top:1px solid #ddd;">';
     echo '<p><label>Nombre Plataforma Personalizada: <input type="text" name="custom_platform_name" value="'.$custom_platform_name.'" placeholder="Ej: Amazon, eBay, etc." style="width:100%"></label></p>';
     echo '<p><label>Enlace Plataforma Personalizada: <input type="url" name="link_custom_platform" value="'.$custom_platform.'" placeholder="https://..." style="width:100%"></label></p>';
+    echo '<hr style="margin:15px 0; border:0; border-top:1px solid #ddd;">';
+    echo '<p><label>Enlace WhatsApp Directo: <input type="url" name="whatsapp_direct_link" value="'.esc_url(get_post_meta($post->ID, 'whatsapp_direct_link', true)).'" placeholder="https://wa.me/5511988263393?text=..." style="width:100%"></label></p>';
   }, 'agg_item', 'side', 'default');
 });
 add_action('save_post_agg_item', function($post_id){
@@ -86,6 +88,7 @@ add_action('save_post_agg_item', function($post_id){
   if (isset($_POST['whatsapp_message'])) update_post_meta($post_id, 'whatsapp_message', sanitize_textarea_field($_POST['whatsapp_message']));
   if (isset($_POST['link_custom_platform'])) update_post_meta($post_id, 'link_custom_platform', esc_url_raw($_POST['link_custom_platform']));
   if (isset($_POST['custom_platform_name'])) update_post_meta($post_id, 'custom_platform_name', sanitize_text_field($_POST['custom_platform_name']));
+  if (isset($_POST['whatsapp_direct_link'])) update_post_meta($post_id, 'whatsapp_direct_link', esc_url_raw($_POST['whatsapp_direct_link']));
 });
 
 
@@ -664,8 +667,9 @@ add_shortcode('agg_importer_list', function($atts){
                 $wa_msg = get_post_meta(get_the_ID(), 'whatsapp_message', true);
                 $custom_platform = get_post_meta(get_the_ID(), 'link_custom_platform', true);
                 $custom_platform_name = get_post_meta(get_the_ID(), 'custom_platform_name', true);
+                $whatsapp_direct = get_post_meta(get_the_ID(), 'whatsapp_direct_link', true);
                 
-                if ($ml || $olx || $sh || $wa || $custom_platform) {
+                if ($ml || $olx || $sh || $wa || $custom_platform || $whatsapp_direct) {
                   echo '<div class="agg-links">';
                   if ($ml)  echo '<a class="agg-btn agg-btn--ml" href="'.esc_url($ml).'" target="_blank" rel="nofollow noopener">Ver en Mercado Livre</a>';
                   
@@ -697,6 +701,9 @@ add_shortcode('agg_importer_list', function($atts){
                   if ($custom_platform) {
                     $platform_name = !empty($custom_platform_name) ? $custom_platform_name : 'Ver en Plataforma';
                     echo '<a class="agg-btn agg-btn--custom" href="'.esc_url($custom_platform).'" target="_blank" rel="nofollow noopener">'.$platform_name.'</a>';
+                  }
+                  if ($whatsapp_direct) {
+                    echo '<a class="agg-btn agg-btn--wa" href="'.esc_url($whatsapp_direct).'" target="_blank" rel="nofollow noopener">💬 WhatsApp</a>';
                   }
                   echo '</div>';
                 }
