@@ -2,8 +2,8 @@
 /*
 Plugin Name: AGG Importer
 Description: Importa productos desde CSV y muestra catálogo con shortcode (con carrusel de imágenes/videos).
-Version: 8.6
-Author: rimarc Lic. Richard Marcelo Romero Cossío + Copilot
+Version: 8.7
+Author: rimarc
 */
 
 if (!defined('ABSPATH')) exit;
@@ -28,7 +28,6 @@ function agg_register_cpt() {
         'supports' => ['title', 'editor', 'thumbnail', 'custom-fields'],
         'menu_icon' => 'dashicons-database',
     ]);
-    // Asegurar soporte de miniaturas para este CPT
     add_theme_support('post-thumbnails', ['agg_item']);
 }
 add_action('init', 'agg_register_cpt');
@@ -51,8 +50,9 @@ add_action('save_post_agg_item', function($post_id){
     update_post_meta($post_id, 'agg_hide', isset($_POST['agg_hide']) ? '1' : '0');
 });
 
-
-/* Metabox: enlaces externos */
+/**
+ * 1.2) Metabox: enlaces externos
+ */
 add_action('add_meta_boxes', function(){
   add_meta_box('agg_links', 'Enlaces de plataformas', function($post){
     wp_nonce_field('agg_links_nonce','agg_links_nonce_field');
@@ -71,7 +71,6 @@ add_action('add_meta_boxes', function(){
   }, 'agg_item', 'side', 'default');
 });
 
-
 add_action('save_post_agg_item', function($post_id){
   if (!isset($_POST['agg_links_nonce_field']) || !wp_verify_nonce($_POST['agg_links_nonce_field'], 'agg_links_nonce')) return;
   if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
@@ -84,7 +83,9 @@ add_action('save_post_agg_item', function($post_id){
   if (isset($_POST['custom_platform_name'])) update_post_meta($post_id, 'custom_platform_name', sanitize_text_field($_POST['custom_platform_name']));
 });
 
-// Actualizar imagen_url cuando se cambia la imagen destacada
+/**
+ * 1.3) Actualizar imagen_url cuando se cambia la imagen destacada
+ */
 add_action('set_post_thumbnail', function($post_id, $thumbnail_id, $old_thumbnail_id) {
   if (get_post_type($post_id) === 'agg_item' && $thumbnail_id) {
     $thumbnail_url = wp_get_attachment_image_url($thumbnail_id, 'medium');
@@ -93,7 +94,6 @@ add_action('set_post_thumbnail', function($post_id, $thumbnail_id, $old_thumbnai
     }
   }
 }, 10, 3);
-
 
 /**
  * 2) Menú admin
@@ -194,18 +194,16 @@ function agg_importer_process_csv($filepath) {
     }
 
     // Alias -> índice
-      $aliasMap = [
-    'titulo'    => ['titulo','título','title','nombre','producto','nombre_producto'],
-    'contenido' => ['contenido','descripcion','descripción','longdescription','long_description','descripcion_larga','descripción_larga','shortdescription','short_description'],
-    'precio'    => ['precio','price','preço'],
-    'stock'     => ['stock','qty','quantity'],
-    'imagen_url'=> ['imagen_url','image','imagen','imagem','image_url','photo','photos','fotos','pictures'],
-    'link_ml'      => ['link_ml','mercado_livre_link','ml_link'],
-    'link_olx'     => ['link_olx','olx_link'],
-    'link_shopee'  => ['link_shopee','shopee_link'],
-    'whatsapp_direct_link' => ['whatsapp_direct_link','whatsapp_link','wa_link','whatsapp'],
-]; 
-    
+    $aliasMap = [
+        'titulo'    => ['titulo','título','title','nombre','producto','nombre_producto'],
+        'contenido' => ['contenido','descripcion','descripción','longdescription','long_description','descripcion_larga','descripción_larga','shortdescription','short_description'],
+        'precio'    => ['precio','price','preço'],
+        'stock'     => ['stock','qty','quantity'],
+        'imagen_url'=> ['imagen_url','image','imagen','imagem','image_url','photo','photos','fotos','pictures'],
+        'link_ml'      => ['link_ml','mercado_livre_link','ml_link'],
+        'link_olx'     => ['link_olx','olx_link'],
+        'link_shopee'  => ['link_shopee','shopee_link']
+    ];
     $index = [];
     foreach ($aliasMap as $canon => $aliases) {
         foreach ($aliases as $a) {
@@ -218,7 +216,6 @@ function agg_importer_process_csv($filepath) {
         agg_importer_redirect_error('No se encontró columna de título. Encabezados: ' . implode(', ', $headers));
         return;
     }
-    
 
     // Utilidades para sideload
     if (!function_exists('media_sideload_image')) {
@@ -258,7 +255,6 @@ function agg_importer_process_csv($filepath) {
             'post_status'  => 'publish',
             'post_title'   => sanitize_text_field($post_title),
             'post_content' => wp_strip_all_tags(sanitize_textarea_field($content_val))
-            
         ];
 
         if ($post_id && get_post($post_id)) {
@@ -278,7 +274,6 @@ function agg_importer_process_csv($filepath) {
             if (in_array($key, $skip_keys, true)) continue;
             update_post_meta($post_id, sanitize_key($key), wp_strip_all_tags(sanitize_text_field($val)));
         }
-        
         // Metas canónicas
         if (isset($index['precio'])) {
             update_post_meta($post_id, 'precio', sanitize_text_field($post_data[$headers[$index['precio']]] ?? ''));
@@ -363,9 +358,7 @@ add_shortcode('agg_importer_list', function($atts){
     if ($query->have_posts()) {
         ?>
 
-
-    <style>
-
+<style>
 .agg-links { display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
 .agg-btn { display:inline-block; padding:8px 10px; border-radius:6px; text-decoration:none; font-weight:600; font-size:13px; background:#333; color:#fff; }
 .agg-btn--ml { background:#ffe600; color:#333; }
@@ -375,30 +368,13 @@ add_shortcode('agg_importer_list', function($atts){
 .agg-btn--custom { background:#007bff; }
 .agg-btn:hover { opacity:.9; }
 
-
-
-/* Responsive para botones en móviles */
-@media (max-width: 768px) {
-  .agg-links {
-    flex-direction: column;
-    gap: 6px;
-  }
-  .agg-btn {
-    text-align: center;
-    padding: 10px 12px;
-    font-size: 14px;
-  }
-}
-
-  /* Grid y tarjeta responsivo */
+/* Grid y tarjeta responsivo */
 .agg-catalogo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 20px;
   margin: 1em 0;
 }
-
-
 .agg-catalogo-card {
   display: flex;
   flex-direction: column;
@@ -407,54 +383,19 @@ add_shortcode('agg_importer_list', function($atts){
   border: 1px solid #ddd;
   border-radius: 8px;
   padding: 14px;
-  min-width: 0; /* Permite que el contenido se ajuste */
+  min-width: 0;
   box-shadow: 0 2px 6px rgba(0,0,0,0.07);
 }
+.agg-catalogo-card > * { margin: 0 !important; }
 
-  .agg-catalogo-card > * { margin: 0 !important; }
-
-  /* Medios en tarjeta */
-  .agg-catalogo-card img,
-  .agg-catalogo-card video {
-    width: 100%;
-    height: 180px;
-    object-fit: contain;
-    display: block;
-    border-radius: 6px;
-  }
-
-/* Responsive para móviles */
-@media (max-width: 768px) {
-  .agg-catalogo-grid {
-    grid-template-columns: 1fr;
-    gap: 15px;
-  }
-  .agg-catalogo-card {
-    padding: 12px;
-  }
-  .agg-catalogo-card img,
-  .agg-catalogo-card video {
-    height: 160px;
-  }
-}
-
-/* Responsive para tablets */
-@media (min-width: 769px) and (max-width: 1024px) {
-  .agg-catalogo-grid {
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 18px;
-  }
-}
-
-/* Responsive para pantallas grandes */
-@media (min-width: 1025px) {
-  .agg-catalogo-grid {
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 25px;
-  }
-  .agg-catalogo-card {
-    padding: 16px;
-  }
+/* Medios en tarjeta */
+.agg-catalogo-card img,
+.agg-catalogo-card video {
+  width: 100%;
+  height: 180px;
+  object-fit: contain;
+  display: block;
+  border-radius: 6px;
 }
 
 /* Carrusel */
@@ -481,81 +422,80 @@ add_shortcode('agg_importer_list', function($atts){
 .agg-dot { width:8px; height:8px; border-radius:4px; background:#bbb; border:0; cursor:pointer; }
 .agg-dot.is-active { background:#333; }
 
-
-
-
-
-  /* Texto y cortes de palabra */
-  .agg-catalogo-card h3 { font-size: 1.15em; }
-  .agg-catalogo-card h3,
-  .agg-catalogo-card .agg-meta {
-    word-break: normal;
-    overflow-wrap: break-word;
-    hyphens: auto;
-  }
-  /* Limitar descripción a 3 líneas */
-  .agg-catalogo-card .agg-meta {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .agg-catalogo-card .agg-precio {
-    font-weight: bold;
-    color: #2b8c2b;
-  }
-
-/* Responsive para texto */
-@media (max-width: 768px) {
-  .agg-catalogo-card h3 {
-    font-size: 1.1em;
-  }
-  .agg-catalogo-card .agg-meta {
-    font-size: 0.9em;
-  }
+/* Texto y cortes de palabra */
+.agg-catalogo-card h3 { font-size: 1.15em; }
+.agg-catalogo-card h3,
+.agg-catalogo-card .agg-meta {
+  word-break: normal;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+.agg-catalogo-card .agg-meta {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.agg-catalogo-card .agg-precio {
+  font-weight: bold;
+  color: #2b8c2b;
 }
 
-  
+/* Reset márgenes extra del theme dentro de la tarjeta */
+.agg-catalogo-card p,
+.agg-catalogo-card figure,
+.agg-catalogo-card br,
+.agg-catalogo-card .wp-video,
+.agg-catalogo-card .mejs-container,
+.agg-catalogo-card .mejs__container { margin: 0 !important; padding: 0 !important; }
+.agg-catalogo-card br { display: none; }
+.agg-catalogo-card p:empty { display: none; }
 
-  /* Reset márgenes extra del theme dentro de la tarjeta */
-  .agg-catalogo-card p,
-  .agg-catalogo-card figure,
-  .agg-catalogo-card br,
-  .agg-catalogo-card .wp-video,
-  .agg-catalogo-card .mejs-container,
-  .agg-catalogo-card .mejs__container { margin: 0 !important; padding: 0 !important; }
-  .agg-catalogo-card br { display: none; }
-  .agg-catalogo-card p:empty { display: none; }
+/* Responsive para móviles */
+@media (max-width: 768px) {
+  .agg-catalogo-grid { grid-template-columns: 1fr; gap: 15px; }
+  .agg-catalogo-card { padding: 12px; }
+  .agg-catalogo-card img, .agg-catalogo-card video { height: 160px; }
+  .agg-links { flex-direction: column; gap: 6px; }
+  .agg-btn { text-align: center; padding: 10px 12px; font-size: 14px; }
+}
+/* Responsive para tablets */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .agg-catalogo-grid { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 18px; }
+}
+/* Responsive para pantallas grandes */
+@media (min-width: 1025px) {
+  .agg-catalogo-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px; }
+  .agg-catalogo-card { padding: 16px; }
+}
 
-  /* Lightbox centrado */
-  .agg-lightbox {
-    position: fixed; inset: 0; z-index: 99999;
-    background: rgba(0,0,0,.9);
-    display: none; align-items: center; justify-content: center;
-  }
-  .agg-lightbox.is-open { display: flex; }
-  .agg-lightbox__content {
-    max-width: 90vw; max-height: 90vh;
-    margin: 0 auto; /* asegura centrado horizontal */
-  }
-  .agg-lightbox__content img,
-  .agg-lightbox__content video {
-    max-width: 90vw; max-height: 90vh;
-    object-fit: contain; display: block; margin: 0 auto;
-    border-radius: 6px;
-  }
-  .agg-lightbox__close, .agg-lightbox__nav {
-    position: fixed; top: 14px;
-    color: #fff; background: rgba(0,0,0,.5);
-    border: 0; cursor: pointer; padding: 8px 12px;
-    border-radius: 4px; z-index: 100000;
-  }
-  .agg-lightbox__close { right: 14px; }
-  .agg-lightbox__nav--prev { left: 14px; top: 50%; transform: translateY(-50%); }
-  .agg-lightbox__nav--next { right: 14px; top: 50%; transform: translateY(-50%); }
+/* Lightbox centrado */
+.agg-lightbox {
+  position: fixed; inset: 0; z-index: 99999;
+  background: rgba(0,0,0,.9);
+  display: none; align-items: center; justify-content: center;
+}
+.agg-lightbox.is-open { display: flex; }
+.agg-lightbox__content {
+  max-width: 90vw; max-height: 90vh;
+  margin: 0 auto;
+}
+.agg-lightbox__content img,
+.agg-lightbox__content video {
+  max-width: 90vw; max-height: 90vh;
+  object-fit: contain; display: block; margin: 0 auto;
+  border-radius: 6px;
+}
+.agg-lightbox__close, .agg-lightbox__nav {
+  position: fixed; top: 14px;
+  color: #fff; background: rgba(0,0,0,.5);
+  border: 0; cursor: pointer; padding: 8px 12px;
+  border-radius: 4px; z-index: 100000;
+}
+.agg-lightbox__close { right: 14px; }
+.agg-lightbox__nav--prev { left: 14px; top: 50%; transform: translateY(-50%); }
+.agg-lightbox__nav--next { right: 14px; top: 50%; transform: translateY(-50%); }
 </style>
-
-
 
         <div class="agg-catalogo-grid">
         <?php
@@ -565,52 +505,47 @@ add_shortcode('agg_importer_list', function($atts){
             ?>
             <div class="agg-catalogo-card">
             <?php
-            // Carrusel por tarjeta: priorizar imagen destacada
+            // Carrusel por tarjeta: LÓGICA CORREGIDA
             $post_id = get_the_ID();
             $media_items = [];
 
-            // 1. PRIORIDAD: Imagen destacada de WordPress
+            // Adjuntos (imágenes y videos)
+            $attachments = get_attached_media('', $post_id);
+            foreach ($attachments as $att) {
+                $mime = get_post_mime_type($att->ID);
+                if (strpos($mime, 'image/') === 0) {
+                    $media_items[] = ['type'=>'image','html'=>wp_get_attachment_image($att->ID,'medium',false,['loading'=>'lazy','decoding'=>'async'])];
+                } elseif (strpos($mime, 'video/') === 0) {
+                    $src = wp_get_attachment_url($att->ID);
+                    if ($src) $media_items[] = ['type'=>'video','html'=>wp_video_shortcode(['src'=>$src,'preload'=>'metadata'])];
+                }
+            }
+            
+            // Añadir URLs externas (imagen/imagen_url) además de adjuntos
+            $raw = '';
+            // Priorizar imagen destacada de WordPress
             $thumbnail_id = get_post_thumbnail_id();
             if ($thumbnail_id) {
                 $thumbnail_url = wp_get_attachment_image_url($thumbnail_id, 'medium');
                 if ($thumbnail_url) {
-                    $media_items[] = ['type'=>'image','html'=>wp_get_attachment_image($thumbnail_id,'medium',false,['loading'=>'lazy','decoding'=>'async'])];
+                    $raw = $thumbnail_url;
                 }
             }
-
-            // 2. SEGUNDA PRIORIDAD: Meta fields (imagen/imagen_url)
-            if (empty($media_items)) {
-                $raw = '';
+            // Fallback a meta fields si no hay imagen destacada
+            if (empty($raw)) {
                 if (!empty($meta['imagen'][0])) { $raw = $meta['imagen'][0]; }
                 elseif (!empty($meta['imagen_url'][0])) { $raw = $meta['imagen_url'][0]; }
-                
-                if (!empty($raw)) {
-                    $urls = array_filter(array_map('trim', preg_split('/\||,\s*(?=https?:)/', (string)$raw)));
-                    foreach ($urls as $u) {
-                        if (!filter_var($u, FILTER_VALIDATE_URL)) continue;
-                        $lower = strtolower($u);
-                        if (preg_match('/\.(mp4|webm|ogg)(\?.*)?$/', $lower)) {
-                            $media_items[] = ['type'=>'video','html'=>wp_video_shortcode(['src'=>$u,'preload'=>'metadata'])];
-                        } else {
-                            $media_items[] = ['type'=>'image','html'=>'<img src="'.esc_url($u).'" loading="lazy" decoding="async" alt="">'];
-                        }
-                    }
-                }
             }
-
-            // 3. TERCERA PRIORIDAD: Otros adjuntos (excluyendo la imagen destacada)
-            if (empty($media_items)) {
-                $attachments = get_attached_media('', $post_id);
-                foreach ($attachments as $att) {
-                    // Excluir la imagen destacada para evitar duplicados
-                    if ($att->ID == $thumbnail_id) continue;
-                    
-                    $mime = get_post_mime_type($att->ID);
-                    if (strpos($mime, 'image/') === 0) {
-                        $media_items[] = ['type'=>'image','html'=>wp_get_attachment_image($att->ID,'medium',false,['loading'=>'lazy','decoding'=>'async'])];
-                    } elseif (strpos($mime, 'video/') === 0) {
-                        $src = wp_get_attachment_url($att->ID);
-                        if ($src) $media_items[] = ['type'=>'video','html'=>wp_video_shortcode(['src'=>$src,'preload'=>'metadata'])];
+            
+            if (!empty($raw)) {
+                $urls = array_filter(array_map('trim', preg_split('/\||,\s*(?=https?:)/', (string)$raw)));
+                foreach ($urls as $u) {
+                    if (!filter_var($u, FILTER_VALIDATE_URL)) continue;
+                    $lower = strtolower($u);
+                    if (preg_match('/\.(mp4|webm|ogg)(\?.*)?$/', $lower)) {
+                        $media_items[] = ['type'=>'video','html'=>wp_video_shortcode(['src'=>$u,'preload'=>'metadata'])];
+                    } else {
+                        $media_items[] = ['type'=>'image','html'=>'<img src="'.esc_url($u).'" loading="lazy" decoding="async" alt="">'];
                     }
                 }
             }
@@ -682,7 +617,6 @@ add_shortcode('agg_importer_list', function($atts){
                 }
                 ?>
 
-
                 <?php
                 $ml  = get_post_meta(get_the_ID(), 'link_ml', true);
                 $olx = get_post_meta(get_the_ID(), 'link_olx', true);
@@ -708,9 +642,6 @@ add_shortcode('agg_importer_list', function($atts){
                 ?>
                            
                 </div>
-                
-             
-                
             <?php
         }
         echo '</div>'; // cierra .agg-catalogo-grid
@@ -819,170 +750,4 @@ add_shortcode('agg_importer_list', function($atts){
         echo '<p>No hay elementos importados.</p>';
     }
     return ob_get_clean();
-});
-
-/* ==== Exportar CSV para OLX / Mercado Livre / Shopee / WooCommerce ==== */
-
-add_action('admin_menu', function () {
-    add_submenu_page(
-        'agg-importer',
-        'AGG Exportar',
-        'AGG Exportar',
-        'manage_options',
-        'agg-exporter',
-        'agg_exporter_admin_page'
-    );
-});
-
-function agg_exporter_admin_page() {
-    ?>
-    <div class="wrap">
-        <h1>Exportar catálogo</h1>
-        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-            <?php wp_nonce_field('agg_export_csv', 'agg_export_csv_nonce'); ?>
-            <input type="hidden" name="action" value="agg_export_csv" />
-
-            <table class="form-table" role="presentation">
-                <tr>
-                    <th scope="row"><label for="agg_platform">Plataforma</label></th>
-                    <td>
-                        <select name="platform" id="agg_platform" required>
-                            <option value="olx">OLX (PT-BR)</option>
-                            <option value="mercado_livre">Mercado Livre (PT-BR)</option>
-                            <option value="shopee">Shopee</option>
-                            <option value="woocommerce">WooCommerce</option>
-                        </select>
-                        <p class="description">
-                            - OLX / Mercado Livre: Título, Descrição, Preço, Imagens, SKU<br>
-                            - Shopee: Name, Description, Price, Images, SKU<br>
-                            - WooCommerce: Name, Description, Regular price, Images, SKU
-                        </p>
-                    </td>
-                </tr>
-                <tr>
-                    <th scope="row">Imágenes</th>
-                    <td>
-                        <label><input type="checkbox" name="all_images" value="1" checked> Incluir todas las imágenes (separadas por |)</label>
-                    </td>
-                </tr>
-            </table>
-
-            <?php submit_button('Descargar CSV'); ?>
-        </form>
-    </div>
-    <?php
-}
-
-add_action('admin_post_agg_export_csv', function () {
-    if (!current_user_can('manage_options')) wp_die('Permisos insuficientes');
-    if (!isset($_POST['agg_export_csv_nonce']) || !wp_verify_nonce($_POST['agg_export_csv_nonce'], 'agg_export_csv')) wp_die('Nonce inválido');
-
-    $platform   = isset($_POST['platform']) ? sanitize_key($_POST['platform']) : 'olx';
-    $allImages  = !empty($_POST['all_images']);
-
-    // Encabezados por plataforma
-    switch ($platform) {
-        case 'olx':
-            $csvHeader = ['Título','Descrição','Preço','Imagens','SKU'];
-            break;
-        case 'mercado_livre':
-            $csvHeader = ['Título','Descrição','Preço','Imagens','SKU'];
-            break;
-        case 'shopee':
-            $csvHeader = ['Name','Description','Price','Images','SKU'];
-            break;
-        case 'woocommerce':
-        default:
-            $csvHeader = ['Name','Description','Regular price','Images','SKU'];
-            break;
-    }
-
-    // Preparar salida CSV (con BOM para Excel)
-    $filename = $platform . '-export-' . date('Ymd-His') . '.csv';
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="'.$filename.'"');
-    $out = fopen('php://output', 'w');
-    // BOM UTF-8
-    fprintf($out, "\xEF\xBB\xBF");
-    fputcsv($out, $csvHeader);
-
-    // Query: items visibles (exclu
-/*Aquí está la continuación del archivo completo:*/
-
-    // Query: items visibles (excluir agg_hide = 1)
-    $q = new WP_Query([
-        'post_type'      => 'agg_item',
-        'posts_per_page' => -1,
-        'meta_query'     => [
-            'relation' => 'OR',
-            ['key' => 'agg_hide', 'compare' => 'NOT EXISTS'],
-            ['key' => 'agg_hide', 'value' => '1', 'compare' => '!='],
-        ],
-        'orderby' => 'ID',
-        'order'   => 'ASC',
-    ]);
-
-    while ($q->have_posts()) {
-        $q->the_post();
-        $postId   = get_the_ID();
-        $title    = get_the_title();
-        $desc     = wp_strip_all_tags(get_the_content(), true);
-        $price    = get_post_meta($postId, 'precio', true);
-        if ($price === '') $price = get_post_meta($postId, 'preço', true);
-        $sku      = get_post_meta($postId, 'sku', true);
-        if ($sku === '') $sku = get_post_field('post_name', $postId);
-
-        // Recopilar imágenes
-        $urls = [];
-
-        // Adjuntos (solo imágenes)
-        $attachments = get_attached_media('image', $postId);
-        if (!empty($attachments)) {
-            foreach ($attachments as $att) {
-                $u = wp_get_attachment_url($att->ID);
-                if ($u) $urls[] = $u;
-                if (!$allImages) break; // solo la primera si no se pidió todas
-            }
-        }
-
-        // Meta externas: imagen / imagen_url (pueden venir separadas por | o coma)
-        $raw = get_post_meta($postId, 'imagen', true);
-        if ($raw === '') $raw = get_post_meta($postId, 'imagen_url', true);
-        if ($raw !== '') {
-            $parts = preg_split('/\||,\s*(?=https?:)/', (string)$raw);
-            foreach ($parts as $p) {
-                $p = trim($p);
-                if (!filter_var($p, FILTER_VALIDATE_URL)) continue;
-                // Solo imágenes para OLX/ML/Shopee/Woo
-                if (preg_match('/\.(jpe?g|png|gif|webp|avif)(\?.*)?$/i', $p)) {
-                    $urls[] = $p;
-                    if (!$allImages) break;
-                }
-            }
-        }
-
-        // Unificar y deduplicar
-        $urls = array_values(array_unique($urls));
-        $imagesField = implode('|', $urls);
-
-        // Fila por plataforma
-        switch ($platform) {
-            case 'olx':
-            case 'mercado_livre':
-                $row = [$title, $desc, $price, $imagesField, $sku];
-                break;
-            case 'shopee':
-                $row = [$title, $desc, $price, $imagesField, $sku];
-                break;
-            case 'woocommerce':
-            default:
-                $row = [$title, $desc, $price, $imagesField, $sku]; // 'Regular price' = $price
-                break;
-        }
-        fputcsv($out, $row);
-    }
-
-    wp_reset_postdata();
-    fclose($out);
-    exit;
 });
