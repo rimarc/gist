@@ -58,9 +58,16 @@ add_action('add_meta_boxes', function(){
     $ml  = esc_url(get_post_meta($post->ID, 'link_ml', true));
     $olx = esc_url(get_post_meta($post->ID, 'link_olx', true));
     $sh  = esc_url(get_post_meta($post->ID, 'link_shopee', true));
+    $wa  = esc_attr(get_post_meta($post->ID, 'whatsapp_number', true));
+    $wa_msg = esc_attr(get_post_meta($post->ID, 'whatsapp_message', true));
+    
     echo '<p><label>Mercado Livre: <input type="url" name="link_ml" value="'.$ml.'" style="width:100%"></label></p>';
     echo '<p><label>OLX: <input type="url" name="link_olx" value="'.$olx.'" style="width:100%"></label></p>';
     echo '<p><label>Shopee: <input type="url" name="link_shopee" value="'.$sh.'" style="width:100%"></label></p>';
+    echo '<hr style="margin:15px 0; border:0; border-top:1px solid #ddd;">';
+    echo '<p><label>WhatsApp Número: <input type="tel" name="whatsapp_number" value="'.$wa.'" placeholder="+5511999999999" style="width:100%"></label></p>';
+    echo '<p><label>Mensaje WhatsApp: <textarea name="whatsapp_message" style="width:100%; height:60px;" placeholder="Olá! Gostaria de saber mais sobre este produto...">'.$wa_msg.'</textarea></label></p>';
+    echo '<p style="font-size:11px; color:#666;">Deixe em branco para usar mensagem padrão</p>';
   }, 'agg_item', 'side', 'default');
 });
 add_action('save_post_agg_item', function($post_id){
@@ -70,6 +77,8 @@ add_action('save_post_agg_item', function($post_id){
   foreach (['link_ml','link_olx','link_shopee'] as $k) {
     if (isset($_POST[$k])) update_post_meta($post_id, $k, esc_url_raw($_POST[$k]));
   }
+  if (isset($_POST['whatsapp_number'])) update_post_meta($post_id, 'whatsapp_number', sanitize_text_field($_POST['whatsapp_number']));
+  if (isset($_POST['whatsapp_message'])) update_post_meta($post_id, 'whatsapp_message', sanitize_textarea_field($_POST['whatsapp_message']));
 });
 
 
@@ -353,6 +362,7 @@ add_shortcode('agg_importer_list', function($atts){
   .agg-btn--ml { background:#ffe600; color:#333; }
   .agg-btn--olx { background:#6e00f5; }
   .agg-btn--sh { background:#ee4d2d; }
+  .agg-btn--wa { background:#25d366; }
   .agg-btn:hover { opacity:.9; }
   
   /* Responsive para botones en móviles */
@@ -642,11 +652,21 @@ add_shortcode('agg_importer_list', function($atts){
                 $ml  = get_post_meta(get_the_ID(), 'link_ml', true);
                 $olx = get_post_meta(get_the_ID(), 'link_olx', true);
                 $sh  = get_post_meta(get_the_ID(), 'link_shopee', true);
-                if ($ml || $olx || $sh) {
+                $wa  = get_post_meta(get_the_ID(), 'whatsapp_number', true);
+                $wa_msg = get_post_meta(get_the_ID(), 'whatsapp_message', true);
+                
+                if ($ml || $olx || $sh || $wa) {
                   echo '<div class="agg-links">';
                   if ($ml)  echo '<a class="agg-btn agg-btn--ml" href="'.esc_url($ml).'" target="_blank" rel="nofollow noopener">Ver en Mercado Livre</a>';
                   if ($olx) echo '<a class="agg-btn agg-btn--olx" href="'.esc_url($olx).'" target="_blank" rel="nofollow noopener">Ver en OLX</a>';
                   if ($sh)  echo '<a class="agg-btn agg-btn--sh" href="'.esc_url($sh).'" target="_blank" rel="nofollow noopener">Ver en Shopee</a>';
+                  if ($wa) {
+                    $wa_number = preg_replace('/[^0-9+]/', '', $wa);
+                    $default_msg = 'Olá! Gostaria de saber mais sobre: ' . get_the_title();
+                    $message = !empty($wa_msg) ? $wa_msg : $default_msg;
+                    $wa_url = 'https://wa.me/' . $wa_number . '?text=' . urlencode($message);
+                    echo '<a class="agg-btn agg-btn--wa" href="'.esc_url($wa_url).'" target="_blank" rel="nofollow noopener">💬 WhatsApp</a>';
+                  }
                   echo '</div>';
                 }
                 ?>
