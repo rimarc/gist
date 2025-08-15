@@ -668,8 +668,25 @@ add_shortcode('agg_importer_list', function($atts){
                 if ($ml || $olx || $sh || $wa || $custom_platform) {
                   echo '<div class="agg-links">';
                   if ($ml)  echo '<a class="agg-btn agg-btn--ml" href="'.esc_url($ml).'" target="_blank" rel="nofollow noopener">Ver en Mercado Livre</a>';
-                  if ($olx) echo '<a class="agg-btn agg-btn--olx" href="'.esc_url($olx).'" target="_blank" rel="nofollow noopener">Ver en OLX</a>';
-                  if ($sh)  echo '<a class="agg-btn agg-btn--sh" href="'.esc_url($sh).'" target="_blank" rel="nofollow noopener">Ver en Shopee</a>';
+                  
+                  // Detectar si OLX es enlace de WhatsApp
+                  if ($olx) {
+                    if (strpos($olx, 'wa.me') !== false || strpos($olx, 'whatsapp') !== false) {
+                      echo '<a class="agg-btn agg-btn--wa" href="'.esc_url($olx).'" target="_blank" rel="nofollow noopener">💬 WhatsApp</a>';
+                    } else {
+                      echo '<a class="agg-btn agg-btn--olx" href="'.esc_url($olx).'" target="_blank" rel="nofollow noopener">Ver en OLX</a>';
+                    }
+                  }
+                  
+                  // Detectar si Shopee es enlace de WhatsApp
+                  if ($sh) {
+                    if (strpos($sh, 'wa.me') !== false || strpos($sh, 'whatsapp') !== false) {
+                      echo '<a class="agg-btn agg-btn--wa" href="'.esc_url($sh).'" target="_blank" rel="nofollow noopener">💬 WhatsApp</a>';
+                    } else {
+                      echo '<a class="agg-btn agg-btn--sh" href="'.esc_url($sh).'" target="_blank" rel="nofollow noopener">Ver en Shopee</a>';
+                    }
+                  }
+                  
                   if ($wa) {
                     $wa_number = preg_replace('/[^0-9+]/', '', $wa);
                     $default_msg = 'Olá! Gostaria de saber mais sobre: ' . get_the_title();
