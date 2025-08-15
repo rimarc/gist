@@ -582,23 +582,18 @@ add_shortcode('agg_importer_list', function($atts){
             
             // 1. PRIORIDAD: Imagen destacada de WordPress
             $thumbnail_id = get_post_thumbnail_id();
-            echo '<!-- DEBUG: thumbnail_id = ' . $thumbnail_id . ' -->';
             if ($thumbnail_id) {
                 $thumbnail_url = wp_get_attachment_image_url($thumbnail_id, 'medium');
-                echo '<!-- DEBUG: thumbnail_url = ' . $thumbnail_url . ' -->';
                 if ($thumbnail_url) {
                     $media_items[] = ['type'=>'image','html'=>wp_get_attachment_image($thumbnail_id,'medium',false,['loading'=>'lazy','decoding'=>'async'])];
-                    echo '<!-- DEBUG: Añadida imagen destacada -->';
                 }
             }
             
             // 2. SEGUNDA PRIORIDAD: Meta fields (imagen/imagen_url)
             if (empty($media_items)) {
-                echo '<!-- DEBUG: No hay imagen destacada, buscando en meta fields -->';
                 $raw = '';
                 if (!empty($meta['imagen'][0])) { $raw = $meta['imagen'][0]; }
                 elseif (!empty($meta['imagen_url'][0])) { $raw = $meta['imagen_url'][0]; }
-                echo '<!-- DEBUG: raw = ' . $raw . ' -->';
                 
                 if (!empty($raw)) {
                     $urls = array_filter(array_map('trim', preg_split('/\||,\s*(?=https?:)/', (string)$raw)));
@@ -616,9 +611,7 @@ add_shortcode('agg_importer_list', function($atts){
             
             // 3. TERCERA PRIORIDAD: Otros adjuntos (excluyendo la imagen destacada)
             if (empty($media_items)) {
-                echo '<!-- DEBUG: No hay meta fields, buscando adjuntos -->';
                 $attachments = get_attached_media('', $post_id);
-                echo '<!-- DEBUG: attachments count = ' . count($attachments) . ' -->';
                 foreach ($attachments as $att) {
                     // Excluir la imagen destacada para evitar duplicados
                     if ($att->ID == $thumbnail_id) continue;
@@ -648,14 +641,7 @@ add_shortcode('agg_importer_list', function($atts){
                 return true;
             }));
 
-            // Debug temporal - ver qué hay en media_items
-            echo '<div style="background:yellow; padding:10px; margin:10px; border:2px solid red;">';
-            echo '<strong>DEBUG:</strong> media_items count = ' . count($media_items) . '<br>';
-            echo '<strong>DEBUG:</strong> thumbnail_id = ' . $thumbnail_id . '<br>';
-            if ($thumbnail_id) {
-                echo '<strong>DEBUG:</strong> thumbnail_url = ' . wp_get_attachment_image_url($thumbnail_id, 'medium') . '<br>';
-            }
-            echo '</div>';
+
             if (!empty($media_items)) :
                 $carousel_id = 'aggc_' . $post_id;
             ?>
