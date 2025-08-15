@@ -91,6 +91,16 @@ add_action('save_post_agg_item', function($post_id){
   if (isset($_POST['whatsapp_direct_link'])) update_post_meta($post_id, 'whatsapp_direct_link', esc_url_raw($_POST['whatsapp_direct_link']));
 });
 
+// Actualizar imagen_url cuando se cambia la imagen destacada
+add_action('set_post_thumbnail', function($post_id, $thumbnail_id, $old_thumbnail_id) {
+  if (get_post_type($post_id) === 'agg_item' && $thumbnail_id) {
+    $thumbnail_url = wp_get_attachment_image_url($thumbnail_id, 'medium');
+    if ($thumbnail_url) {
+      update_post_meta($post_id, 'imagen_url', esc_url_raw($thumbnail_url));
+    }
+  }
+}, 10, 3);
+
 
 
 
@@ -578,8 +588,19 @@ add_shortcode('agg_importer_list', function($atts){
             }
             // Añadir URLs externas (imagen/imagen_url) además de adjuntos
             $raw = '';
-            if (!empty($meta['imagen'][0])) { $raw = $meta['imagen'][0]; }
-            elseif (!empty($meta['imagen_url'][0])) { $raw = $meta['imagen_url'][0]; }
+            // Priorizar imagen destacada de WordPress
+            $thumbnail_id = get_post_thumbnail_id();
+            if ($thumbnail_id) {
+                $thumbnail_url = wp_get_attachment_image_url($thumbnail_id, 'medium');
+                if ($thumbnail_url) {
+                    $raw = $thumbnail_url;
+                }
+            }
+            // Fallback a meta fields si no hay imagen destacada
+            if (empty($raw)) {
+                if (!empty($meta['imagen'][0])) { $raw = $meta['imagen'][0]; }
+                elseif (!empty($meta['imagen_url'][0])) { $raw = $meta['imagen_url'][0]; }
+            }
             $urls = array_filter(array_map('trim', preg_split('/\||,\s*(?=https?:)/', (string)$raw)));
             foreach ($urls as $u) {
                 if (!filter_var($u, FILTER_VALIDATE_URL)) continue;
